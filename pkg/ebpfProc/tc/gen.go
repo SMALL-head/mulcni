@@ -1,0 +1,3 @@
+package tc
+
+//go:generate
