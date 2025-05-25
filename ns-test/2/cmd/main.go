@@ -93,7 +93,7 @@ func main() {
 		ip2IfaceMap.Close()
 	}()
 
-	// 2.1 向ip2IfaceMap中添加数据包的src和ifaceIndex
+	// 2.1 向ip2IfaceMap中添加数据包的src和ifaceIndex,注意，mac地址是h-ns对端的mac地址
 	k, v, _ := NewKeyValue("192.168.31.2", "h-ns1", []byte{0xbe, 0xcd, 0xcf, 0x48, 0xb3, 0x94})
 	err := ip2IfaceMap.Put(k, v)
 	if err != nil {

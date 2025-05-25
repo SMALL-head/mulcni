@@ -12,24 +12,6 @@
 #include <linux/if_packet.h>
 #include "common.h"
 
-#define trace_printk(fmt, ...) do { \
-	char _fmt[] = fmt; \
-	bpf_trace_printk(_fmt, sizeof(_fmt), ##__VA_ARGS__); \
-	} while (0)
-
-struct ipSrcKey {
-    __u32 sa;
-};
-
-struct ipDstValue {
-    __u32 da;
-    __u32 ifaceIndex;
-    __u8 mac[ETH_ALEN];
-};
-
-#ifndef __section
-# define __section(x) __attribute__((section(x), used))
-#endif
 
 struct bpf_elf_map __section("maps") ip2Iface = {
 	.type		= BPF_MAP_TYPE_HASH,
@@ -37,6 +19,15 @@ struct bpf_elf_map __section("maps") ip2Iface = {
 	.size_value	= sizeof(struct ipDstValue),
 	.pinning	= PIN_GLOBAL_NS,
 	.max_elem	= 4096,
+};
+
+// key存放ip mask地址，value存放该ip地址对应的隧道接口索引以及该接口索引需要封装ip地址
+struct bpf_elf_map __section("maps") dipVxlan = {
+    .type = BPF_MAP_TYPE_HASH,
+    .size_key = sizeof(struct ipSrcKey),
+    .size_value = sizeof(struct dipVxlanValue),
+    .pinning = PIN_GLOBAL_NS,
+    .max_elem = 4096,
 };
 
 
@@ -54,8 +45,8 @@ int tc_ingress_redirect(struct __sk_buff *skb)
     }
     
     if (skb->protocol != bpf_htons(ETH_P_IP)) {
-        char fmt[] = "not ip packet: %d, expect: %d, skb->protocal: %d\n";
-        bpf_trace_printk(fmt, sizeof(fmt), skb->protocol, bpf_htons(ETH_P_IP), bpf_ntohs(skb->protocol));
+        // char fmt[] = "not ip packet: %d, expect: %d, skb->protocal: %d\n";
+        // bpf_trace_printk(fmt, sizeof(fmt), skb->protocol, bpf_htons(ETH_P_IP), bpf_ntohs(skb->protocol));
         return TC_ACT_OK;
     }
     
