@@ -19,3 +19,10 @@ build-bpf:
 		}; \
 	done
 	@echo "BPF 程序构建完成"
+
+build-vxlan-bpf:
+	@echo "Building vxlan and tc BPF programs..."
+	(clang -g -O2 -I./pkg/ebpfProc/include -Wall -target bpf -c ./pkg/ebpfProc/tc/tc.bpf.c -o ./pkg/ebpfProc/tc/tc.o)
+	(clang -g -O2 -I./pkg/ebpfProc/include -Wall -target bpf -c ./pkg/ebpfProc/vxlan/vxlan_egress.bpf.c -o ./pkg/ebpfProc/vxlan/vxlan_egress.o)
+	(clang -g -O2 -I./pkg/ebpfProc/include -Wall -target bpf -c ./pkg/ebpfProc/vxlan/vxlan_ingress.bpf.c -o ./pkg/ebpfProc/vxlan/vxlan_ingress.o)
+	@echo "vxlan BPF 程序构建完成"

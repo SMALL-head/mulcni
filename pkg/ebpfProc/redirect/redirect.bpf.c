@@ -1,8 +1,7 @@
 //go:build ignore
 
 // #include "vmlinux.h"
-#include "redirect.h"
-#include "common.h"
+
 #include <linux/bpf.h>
 #include <linux/bpf_common.h>
 #include <linux/bpf_perf_event.h>
@@ -13,6 +12,8 @@
 #include <linux/ip.h>      // iphdr定义
 #include <linux/in.h>      // 添加此头文件获取协议常量定义
 #include <bpf/bpf_endian.h>
+#include "redirect.h"
+#include "common.h"
 
 #ifndef __section
 # define __section(x)  __attribute__((section(x), used))

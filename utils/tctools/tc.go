@@ -2,6 +2,7 @@ package tctools
 
 import (
 	"os/exec"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 )
@@ -12,6 +13,13 @@ func execCmd(cmd string) (string, error) {
 		return "", err
 	}
 	return string(out), nil
+}
+
+func ExistsQdisc(ifaceName string) bool {
+	out, _ := execCmd("tc qdisc show dev " + ifaceName)
+	// out, _ := processInfo.Output()
+	logrus.Debugf("tc qdisc show dev %s output: %s", ifaceName, out)
+	return strings.Contains(string(out), "clsact")
 }
 
 func AddClsactQdiscIntoDev(ifaceName string) error {
@@ -33,8 +41,27 @@ func AttachIngressBPFToIface(ifaceName string, bpfFilePath string) error {
 	return nil
 }
 
+func AttachEgressBPFToIface(ifaceName string, bpfFilePath string) error {
+	cmd := "tc filter add dev " + ifaceName + " egress bpf direct-action obj " + bpfFilePath
+	res, err := execCmd(cmd)
+	if err != nil {
+		logrus.Errorf("mount bpf file %s to iface %s failed, output = %v, err = %v", bpfFilePath, ifaceName, res, err)
+		return err
+	}
+	return nil
+}
+
 func DeleteIngressBPFFromIface(ifaceName string) error {
 	cmd := "tc filter del dev " + ifaceName + " ingress"
+	_, err := execCmd(cmd)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func DeleteEgressBPFFromIface(ifaceName string) error {
+	cmd := "tc filter del dev " + ifaceName + " egress"
 	_, err := execCmd(cmd)
 	if err != nil {
 		return err
