@@ -11,6 +11,7 @@ import (
 	"github.com/SMALL-head/mulcni/utils/iptools"
 	"github.com/SMALL-head/mulcni/utils/tctools"
 	"github.com/containernetworking/plugins/pkg/ns"
+	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 )
@@ -169,6 +170,11 @@ func mountVxlanProc(vxlanl *netlink.Vxlan) error {
 }
 
 func main() {
+	if err := godotenv.Load(); err != nil {
+		logrus.Warnf("Failed to load .env file: %v", err)
+	} else {
+		logrus.Infof("Loaded environment variables from .env file")
+	}
 	cleanupFunc, err := initNS(
 		"ns3",                               // 命名空间
 		"10.244.2.1",                        // 网关IP地址
