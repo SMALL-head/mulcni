@@ -14,6 +14,8 @@
 
 #define DEFAULT_TUNNEL_ID 13001
 
+
+// 用于选择远端点，key为远端node对应的子网ip，value为该子网ip可以选择的网卡信息
 struct bpf_elf_map __section("maps") dipVxlan = {
     .type = BPF_MAP_TYPE_HASH,
     .size_key = sizeof(struct ipDstKey),
@@ -22,9 +24,6 @@ struct bpf_elf_map __section("maps") dipVxlan = {
     .max_elem = 4096,
 };
 
-int select_one() {
-    return 0;
-}
 
 SEC("classifier")
 int vxlan_egress(struct __sk_buff *skb)
@@ -44,6 +43,10 @@ int vxlan_egress(struct __sk_buff *skb)
         return TC_ACT_UNSPEC;
     }
     struct iphdr *ip = (struct iphdr *)(eth + 1);
+    // 确保IP头部完全在数据包内
+    if ((void *)(ip + 1) > data_end) {
+        return TC_ACT_OK;
+    }
     __u32 dst_ip = bpf_htonl(ip->daddr);
 
     struct ipDstKey key = {0};
@@ -57,8 +60,9 @@ int vxlan_egress(struct __sk_buff *skb)
         return TC_ACT_OK;
     }
     // 封装vxlan包
-    __u32 ifaceIndex = select_one(); // 网卡负载均衡
-    struct bpf_tunnel_key tunnel_key = {0};
+    __u32 ifaceIndex = 0; // 网卡负载均衡
+    struct bpf_tunnel_key tunnel_key;
+    __builtin_memset(&tunnel_key, 0, sizeof(tunnel_key));
 
     tunnel_key.remote_ipv4 = value->vxlanIP[ifaceIndex];
     tunnel_key.tunnel_id = DEFAULT_TUNNEL_ID;
@@ -67,9 +71,11 @@ int vxlan_egress(struct __sk_buff *skb)
 
     int ret = bpf_skb_set_tunnel_key(skb, &tunnel_key, sizeof(tunnel_key), BPF_F_ZERO_CSUM_TX);
     if (ret < 0) {
-        bpf_printk("bpf_skb_set_tunnel_key failed: %d\n", ret);
+        trace_printk("bpf_skb_set_tunnel_key failed: %d\n", ret);
         return TC_ACT_SHOT;
     }
     return TC_ACT_OK;
 }
 
+// 在文件末尾添加或修改为以下内容
+char __license[] SEC("license") = "Dual BSD/GPL";

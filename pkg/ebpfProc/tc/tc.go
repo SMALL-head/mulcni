@@ -10,11 +10,35 @@ import (
 )
 
 var (
-	tcObjFilePath string
+	tcObjFilePath      string
+	tcVxlanEgressPath  string
+	tcVxlanIngressPath string
 )
+
+type IPSrcKey struct {
+	Sa uint32
+}
+
+type IPDstKey struct {
+	Da uint32
+}
+
+type IPDstValue struct {
+	Da         uint32
+	IfaceIndex uint32
+	Mac        [6]uint8
+	Padding    [2]uint8 // 没有意义，9字节对齐用的
+}
+
+type DIPVxlanValue struct {
+	IfaceIndex [8]uint32
+	VxlanIP    [8]uint32
+}
 
 func init() {
 	tcObjFilePath = os.Getenv("TC_REDIRECT_OBJ_FILE")
+	tcVxlanEgressPath = os.Getenv("TC_VXLAN_EGRESS_OBJ_FILE")
+	tcVxlanIngressPath = os.Getenv("TC_VXLAN_INGRESS_OBJ_FILE")
 }
 
 type UnMountTCFunc func() error
@@ -66,4 +90,44 @@ func AttachTCRedirectProg(ifaceName string) (UnMountTCFunc, error) {
 		return nil
 	}
 	return unMountFunc, tctools.AttachIngressBPFToIface(ifaceName, tcObjFilePath)
+}
+
+func AttachTCVxlanEgressProg(ifaceName string) (UnMountTCFunc, error) {
+	if tcVxlanEgressPath == "" {
+		tcVxlanEgressPath = "/root/mulcni/pkg/ebpfProc/vxlan/vxlan_egress.o"
+	}
+	if !tctools.ExistsQdisc(ifaceName) {
+		if err := tctools.AddClsactQdiscIntoDev(ifaceName); err != nil {
+			logrus.Errorf("Failed to add clsact qdisc into iface %s: %v", ifaceName, err)
+			return nil, err
+		}
+	}
+	unMountFunc := func() error {
+		if err := tctools.DeleteEgressBPFFromIface(ifaceName); err != nil {
+			logrus.Errorf("Failed to delete egress BPF from iface %s: %v", ifaceName, err)
+			return err
+		}
+		return nil
+	}
+	return unMountFunc, tctools.AttachEgressBPFToIface(ifaceName, tcVxlanEgressPath)
+}
+
+func AttachTCVxlanIngressProg(ifaceName string) (UnMountTCFunc, error) {
+	if tcVxlanIngressPath == "" {
+		tcVxlanIngressPath = "/root/mulcni/pkg/ebpfProc/vxlan/vxlan_ingress.o"
+	}
+	if !tctools.ExistsQdisc(ifaceName) {
+		if err := tctools.AddClsactQdiscIntoDev(ifaceName); err != nil {
+			logrus.Errorf("Failed to add clsact qdisc into iface %s: %v", ifaceName, err)
+			return nil, err
+		}
+	}
+	unMountFunc := func() error {
+		if err := tctools.DeleteIngressBPFFromIface(ifaceName); err != nil {
+			logrus.Errorf("Failed to delete ingress BPF from iface %s: %v", ifaceName, err)
+			return err
+		}
+		return nil
+	}
+	return unMountFunc, tctools.AttachIngressBPFToIface(ifaceName, tcVxlanIngressPath)
 }

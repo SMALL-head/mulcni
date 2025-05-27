@@ -1,16 +1,28 @@
 package ifacetools
 
 import (
+	"errors"
 	"net"
+	"os/exec"
 
 	"github.com/containernetworking/plugins/pkg/ns"
 	"github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 )
 
+func execCmd(cmd string) (string, error) {
+	out, err := exec.Command("bash", "-c", cmd).Output()
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
 type VethPairInfo struct {
 	IfaceNameHost string
 	IfaceNameNs   string
+	LinkIndexHost int
+	LinkIndexNs   int
 	IfaceIp       *net.IPNet
 	IfaceHostAddr net.HardwareAddr
 	IfaceNsAddr   net.HardwareAddr
@@ -34,7 +46,22 @@ func TransferMacAddr(hwAddr net.HardwareAddr) [6]uint8 {
 
 // CreateVethPair 创建一对veth pair
 func CreateVethPair(v1, v2 string) (*netlink.Veth, *netlink.Veth, error) {
-	veth1 := &netlink.Veth{
+	// 先看有没有存在同名的veth pair，如果存在则返回
+	l1, _ := netlink.LinkByName(v1)
+	l2, _ := netlink.LinkByName(v2)
+	if l1 != nil && l2 != nil {
+		veth1, ok1 := l1.(*netlink.Veth)
+		veth2, ok2 := l2.(*netlink.Veth)
+		if !ok1 || !ok2 {
+			return nil, nil, errors.New("存在同名veth但是不是veth类型")
+		}
+		return veth1, veth2, nil
+	} else if l1 != nil || l2 != nil {
+		// 如果只有一个存在，这种情况抛给上层解决，本方法不做处理
+		return nil, nil, errors.New("存在同名veth但是只有一个存在, 请自行删除")
+	}
+
+	vethPair := &netlink.Veth{
 		LinkAttrs: netlink.LinkAttrs{
 			Name: v1,
 			MTU:  1500,
@@ -42,7 +69,7 @@ func CreateVethPair(v1, v2 string) (*netlink.Veth, *netlink.Veth, error) {
 		PeerName: v2,
 	}
 
-	if err := netlink.LinkAdd(veth1); err != nil {
+	if err := netlink.LinkAdd(vethPair); err != nil {
 		return nil, nil, err
 	}
 
@@ -50,7 +77,7 @@ func CreateVethPair(v1, v2 string) (*netlink.Veth, *netlink.Veth, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	l2, err := netlink.LinkByName(v2)
+	l2, err = netlink.LinkByName(v2)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -71,6 +98,38 @@ func CreateVethInNs(nsPath string, ifaceNameHost, ifaceNameNs string, ipAddr str
 	res := VethPairInfo{}
 
 	err = n.Do(func(hostNs ns.NetNS) error {
+		l, _ := netlink.LinkByName(ifaceNameNs)
+		nsVeth, ok := l.(*netlink.Veth)
+		if ok && nsVeth != nil {
+			err2 := hostNs.Do(func(_ ns.NetNS) error {
+				l, err := netlink.LinkByName(ifaceNameHost)
+				if err != nil {
+					return err
+				}
+				hostVeth, ok := l.(*netlink.Veth)
+				if !ok {
+					return errors.New("host veth is not a Veth type")
+				}
+				ipaddr, ipnet, err := net.ParseCIDR(ipAddr)
+				if err != nil {
+					return err
+				}
+				ipnet.IP = ipaddr
+				// 如果ns中的veth已经存在，则直接返回
+				res.IfaceNameHost = ifaceNameHost
+				res.IfaceNameNs = ifaceNameNs
+				res.IfaceIp = ipnet
+				res.IfaceHostAddr = hostVeth.HardwareAddr
+				res.IfaceNsAddr = nsVeth.HardwareAddr
+				res.LinkIndexHost = hostVeth.Index
+				res.LinkIndexNs = nsVeth.Index
+				return nil
+			})
+			if err2 != nil {
+				return err2
+			}
+			return nil
+		}
 		// 从ns中创建veth pair
 		nsVeth, hostVeth, err := CreateVethPair(ifaceNameNs, ifaceNameHost)
 		if err != nil {
@@ -105,9 +164,15 @@ func CreateVethInNs(nsPath string, ifaceNameHost, ifaceNameNs string, ipAddr str
 			}
 		}
 
-		hostNs.Do(func(_ ns.NetNS) error {
-			return netlink.LinkSetUp(hostVeth)
-		})
+		if err = hostNs.Do(func(_ ns.NetNS) error {
+			l, err := netlink.LinkByName(hostVeth.Name)
+			if err != nil {
+				return err
+			}
+			return netlink.LinkSetUp(l)
+		}); err != nil {
+			logrus.Errorf("failed to set host veth up: %v", err)
+		}
 
 		// 封装返回值
 		res.IfaceNameHost = ifaceNameHost
@@ -115,8 +180,33 @@ func CreateVethInNs(nsPath string, ifaceNameHost, ifaceNameNs string, ipAddr str
 		res.IfaceIp = ipnet
 		res.IfaceHostAddr = hostVeth.HardwareAddr
 		res.IfaceNsAddr = nsVeth.HardwareAddr
+		res.LinkIndexHost = hostVeth.Index
+		res.LinkIndexNs = nsVeth.Index
 		return nil
 	})
 
 	return &res, err
+}
+
+func CreateVxlanAndUp(vxlanName string) (*netlink.Vxlan, error) {
+	l, _ := netlink.LinkByName(vxlanName)
+	vxlanl, ok := l.(*netlink.Vxlan)
+	if ok && vxlanl != nil {
+		netlink.LinkSetUp(vxlanl)
+		logrus.Infof("vxlan %s already exists", vxlanName)
+		return vxlanl, nil
+	}
+	_, err := execCmd("ip link add name " + vxlanName + " type vxlan external")
+	if err != nil {
+		logrus.Errorf("failed to create vxlan %s: %v", vxlanName, err)
+		return nil, err
+	}
+	l, err = netlink.LinkByName(vxlanName)
+	if err != nil {
+		logrus.Errorf("failed to get vxlan %s: %v", vxlanName, err)
+		return nil, err
+	}
+	vxlanl = l.(*netlink.Vxlan)
+	netlink.LinkSetUp(vxlanl)
+	return vxlanl, nil
 }

@@ -12,22 +12,32 @@
 #include <linux/if_packet.h>
 #include "common.h"
 
+#define VXLAN_VETH_KEY 0
 
 struct bpf_elf_map __section("maps") ip2Iface = {
 	.type		= BPF_MAP_TYPE_HASH,
-	.size_key	= sizeof(struct ipSrcKey),
+	.size_key	= sizeof(struct ipDstKey),
 	.size_value	= sizeof(struct ipDstValue),
 	.pinning	= PIN_GLOBAL_NS,
 	.max_elem	= 4096,
 };
 
 // key存放ip mask地址，value存放该ip地址对应的隧道接口索引以及该接口索引需要封装ip地址
-struct bpf_elf_map __section("maps") dipVxlan = {
+// struct bpf_elf_map __section("maps") dipVxlan = {
+//     .type = BPF_MAP_TYPE_HASH,
+//     .size_key = sizeof(struct ipSrcKey),
+//     .size_value = sizeof(struct dipVxlanValue),
+//     .pinning = PIN_GLOBAL_NS,
+//     .max_elem = 4096,
+// };
+
+// 存储vxlan veth的iface索引
+struct bpf_elf_map __section("maps") vxlanIface = {
     .type = BPF_MAP_TYPE_HASH,
-    .size_key = sizeof(struct ipSrcKey),
-    .size_value = sizeof(struct dipVxlanValue),
+    .size_key = sizeof(__u32),
+    .size_value = sizeof(__u32),
     .pinning = PIN_GLOBAL_NS,
-    .max_elem = 4096,
+    .max_elem = 1,
 };
 
 
@@ -54,26 +64,29 @@ int tc_ingress_redirect(struct __sk_buff *skb)
     if ((void *)(ip + 1) > data_end) {
         return TC_ACT_OK;
     }
-    
-    if (ip->protocol == IPPROTO_ICMP) {
-        // test whether the map can be used
-        // __u32 sa = bpf_ntohl(ip->saddr);
-        struct ipSrcKey key = {};
-        __u32 da = bpf_ntohl(ip->daddr);
-        key.sa = da;
-        struct ipDstValue *v = bpf_map_lookup_elem(&ip2Iface, &key);
-        if (!v) {
-            return TC_ACT_OK;
-        }
 
+    // dst是否是本机上的？
+    struct ipDstKey key = {};
+    __u32 da = bpf_ntohl(ip->daddr);
+    key.da = da;
+    struct ipDstValue *v = bpf_map_lookup_elem(&ip2Iface, &key);
+    if (v) {
         bpf_skb_change_type(skb, PACKET_HOST); // 直接改包类型就不会校验mac地址了，这种做法感觉很暴力，可以作为兜底。不过我还是先尝试更改mac地址
-
         __u8 dst_mac[ETH_ALEN];
         // bpf_memcpy(src_mac, eth->h_source, ETH_ALEN);
         bpf_memcpy(dst_mac, v->mac, ETH_ALEN);
         bpf_skb_store_bytes(skb, offsetof(struct ethhdr, h_dest), dst_mac, ETH_ALEN, 0); // 修改目的mac地址
-
         return bpf_redirect_peer(v->ifaceIndex, 0); // 发送到位于ns的对端
+    }
+
+    // 如果没有在本node上找到对应的v，则直接转发给vxlan设备做进一步操作
+    __u32 vxlan_key = VXLAN_VETH_KEY;
+    __u32 *vxlan_device_id = bpf_map_lookup_elem(&vxlanIface, &vxlan_key);
+    if (vxlan_device_id) {
+        return bpf_redirect_peer(*vxlan_device_id, 0); // 发送到vxlan设备
+    } else {
+        trace_printk("vxlan device not found, key: %d\n", vxlan_key);
+        return TC_ACT_UNSPEC;
     }
 
     return TC_ACT_OK;

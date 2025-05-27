@@ -1,0 +1,1 @@
+1. 主机上的网关veth(cic-host与cic-host-peer)不需要挂载任何ebpf程序，它们的作用只是为了将流量从namespace中导出进入主机中的veth中

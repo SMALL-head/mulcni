@@ -13,6 +13,8 @@ bpftool map dump id <map_id>
 # ip link set dev h-ns1 xdp obj /sys/fs/bpf/xdp_prog -> 这种方式map好像没有创建出来
 bpftool net attach xdp pinned /sys/fs/bpf/xdp_prog dev h-ns1
 
+# 添加vxlan设备
+ip link add vxlan0 type vxlan id 42 group
 
 # tc command
 tc qdisc add dev h-ns1 clsact # 添加一个可以挂载bpf程序的队列
@@ -21,3 +23,6 @@ tc filter show dev h-ns1 ingress # 查看tc filter信息（比如说挂载了哪
 
 # watch命令
 watch -d -n 1 ip -s link show dev cic-host # 查看cic-host网卡中的tx(transport)和rx(receive)信息
+
+# go test 命令指定特定的测试函数，网上说支持正则
+go test -run TestXdpProg # 运行TestXdpProg测试函数

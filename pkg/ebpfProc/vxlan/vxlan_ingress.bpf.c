@@ -13,7 +13,7 @@
 
 struct bpf_elf_map __section("maps") ip2Iface = {
 	.type		= BPF_MAP_TYPE_HASH,
-	.size_key	= sizeof(struct ipSrcKey),
+	.size_key	= sizeof(struct ipDstKey),
 	.size_value	= sizeof(struct ipDstValue),
 	.pinning	= PIN_GLOBAL_NS,
 	.max_elem	= 4096,
@@ -45,19 +45,23 @@ int vxlan_ingress(struct __sk_buff *skb)
     if ((void *)(ip + 1) > data_end) {
         return TC_ACT_OK;
     }
-    __u32 src_ip = bpf_htonl(ip->saddr);
+
     __u32 dst_ip = bpf_htonl(ip->daddr);
 
-    struct ipSrcKey key = {0};
-    key.sa = dst_ip;
+    struct ipDstKey key = {0};
+    key.da = dst_ip;
     struct ipDstValue *value = bpf_map_lookup_elem(&ip2Iface, &key);
     if (!value) {
         // 该da找不到dst ip对应的veth信息
         return TC_ACT_OK;
     }
+    bpf_skb_change_type(skb, PACKET_HOST);
     __u8 dst_mac[ETH_ALEN] = {0};
     bpf_memcpy(dst_mac, value->mac, ETH_ALEN);
     bpf_skb_store_bytes(skb, offsetof(struct ethhdr, h_dest), dst_mac, ETH_ALEN, 0);
     return bpf_redirect_peer(value->ifaceIndex, 0);
 //    return TC_ACT_OK;
 }
+
+// 在文件末尾添加或修改为以下内容
+char __license[] SEC("license") = "Dual BSD/GPL";
