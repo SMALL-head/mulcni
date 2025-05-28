@@ -6,6 +6,7 @@ import (
 
 	"github.com/SMALL-head/mulcni/utils/tctools"
 	"github.com/cilium/ebpf"
+	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
 )
 
@@ -36,6 +37,11 @@ type DIPVxlanValue struct {
 }
 
 func init() {
+	if err := godotenv.Load(); err != nil {
+		logrus.Warnf("Failed to load .env file: %v", err)
+	} else {
+		logrus.Infof(".env file loaded successfully")
+	}
 	tcObjFilePath = os.Getenv("TC_REDIRECT_OBJ_FILE")
 	tcVxlanEgressPath = os.Getenv("TC_VXLAN_EGRESS_OBJ_FILE")
 	tcVxlanIngressPath = os.Getenv("TC_VXLAN_INGRESS_OBJ_FILE")
