@@ -110,12 +110,15 @@ func initNS(nsName string, gateWayIPStr string) (cleanup func(), err error) {
 	}
 
 	// tc ingress ebpf程序挂载到ns host端的veth上
-	_, err = tc.AttachTCRedirectProg(vethInfo.IfaceNameHost)
+	cleanUpHostIngress, err := tc.AttachTCRedirectProg(vethInfo.IfaceNameHost)
 	if err != nil {
 		logrus.Errorf("Failed to attach tc ingress BPF to iface %s: %v", vethInfo.IfaceNameHost, err)
 	}
 
-	mountVxlanProc(vxlanl)
+	cleanUpVxlanEIngress, err := mountVxlanProc(vxlanl)
+	if err != nil {
+		logrus.Errorf("Failed to mount vxlan ingress BPF: %v", err)
+	}
 
 	// return
 	// 本来我是想在清理函数中删除link的，但是考虑到iface index每次创建都会单调递增，下一次又创建感觉很浪费的样子，所以在测试阶段就别删了
@@ -130,11 +133,14 @@ func initNS(nsName string, gateWayIPStr string) (cleanup func(), err error) {
 		// if err := netlink.LinkDel(lhost); err != nil {
 		// 	logrus.Errorf("Failed to delete veth pair: %v", err)
 		// }
+		cleanUpHostIngress()
+		cleanUpVxlanEIngress()
 	}, nil
 
 }
 
-func mountVxlanProc(vxlanl *netlink.Vxlan) error {
+// return 清理函数，该清理函数用于清除vxlan设备上挂载的ingress 和 egress tc程序
+func mountVxlanProc(vxlanl *netlink.Vxlan) (func(), error) {
 	// vxlan ebpf程序挂载
 	// a. 先创建所需要的map，往里面填充对端信息
 	dipVxlanMap := tc.MountMap("dipVxlan", "", 4096, tc.IPDstKey{}, tc.DIPVxlanValue{})
@@ -150,24 +156,30 @@ func mountVxlanProc(vxlanl *netlink.Vxlan) error {
 	)
 	if err != nil {
 		logrus.Errorf("Failed to put  DIPVxlanValue into map: %v", err)
-		return err
+		return nil, err
 	}
 
 	// b. 挂载vxlan程序
 	// 挂载egress程序
-	_, err = tc.AttachTCVxlanEgressProg(vxlanl.Name) // 这里不考虑unmount了
+	cleanUpEgress, err := tc.AttachTCVxlanEgressProg(vxlanl.Name) // 这里不考虑unmount了
 	if err != nil {
 		logrus.Errorf("Failed to attach vxlan egress BPF to iface %s: %v", vxlanl.Name, err)
-		return err
+		return nil, err
 	}
 	// 挂载ingress程序
-	_, err = tc.AttachTCVxlanIngressProg(vxlanl.Name)
+	cleanUpIngress, err := tc.AttachTCVxlanIngressProg(vxlanl.Name)
 	if err != nil {
 		logrus.Errorf("Failed to attach vxlan ingress BPF to iface %s: %v", vxlanl.Name, err)
-		return err
+		return func() {
+			cleanUpEgress()
+		}, err
 	}
 
-	return nil
+	return func() {
+		cleanUpEgress()
+		cleanUpIngress()
+
+	}, nil
 }
 
 func main() {
