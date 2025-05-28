@@ -11,6 +11,7 @@ import (
 	"github.com/SMALL-head/mulcni/utils/ifacetools"
 	"github.com/SMALL-head/mulcni/utils/iptools"
 	"github.com/containernetworking/plugins/pkg/ns"
+	"github.com/joho/godotenv"
 	"github.com/vishvananda/netlink"
 
 	"github.com/cilium/ebpf"
@@ -50,6 +51,11 @@ func mountMap() *ebpf.Map {
 }
 
 func main() {
+	if err := godotenv.Load(); err != nil {
+		logrus.Warnf("Failed to load .env file: %v", err)
+	} else {
+		logrus.Infof(".env file loaded successfully")
+	}
 	_, cancel := context.WithCancel(context.Background())
 
 	ip2IfaceMap := mountMap()
