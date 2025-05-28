@@ -17,7 +17,7 @@ import (
 )
 
 // gatewayIPStr 是网关的IP地址,不带掩码位
-func initNS(nsName string, gateWayIPStr string, tcIngressBPFProgPath string) (cleanup func(), err error) {
+func initNS(nsName string, gateWayIPStr string) (cleanup func(), err error) {
 	ns1, err := ns.GetNS(fmt.Sprintf("/var/run/netns/%s", nsName))
 	if err != nil {
 		logrus.Errorf("Failed to get %s: %v", nsName, err)
@@ -110,10 +110,11 @@ func initNS(nsName string, gateWayIPStr string, tcIngressBPFProgPath string) (cl
 	}
 
 	// tc ingress ebpf程序挂载到ns host端的veth上
-	err = tctools.AttachIngressBPFToIface(vethInfo.IfaceNameHost, tcIngressBPFProgPath)
+	_, err = tc.AttachTCRedirectProg(vethInfo.IfaceNameHost)
 	if err != nil {
 		logrus.Errorf("Failed to attach tc ingress BPF to iface %s: %v", vethInfo.IfaceNameHost, err)
 	}
+
 	mountVxlanProc(vxlanl)
 
 	// return
@@ -176,9 +177,8 @@ func main() {
 		logrus.Infof("Loaded environment variables from .env file")
 	}
 	cleanupFunc, err := initNS(
-		"ns3",                               // 命名空间
-		"10.244.2.1",                        // 网关IP地址
-		"/root/mulcni/pkg/ebpfProc/tc/tc.o", // tc ingress ebpf程序路径
+		"ns3",        // 命名空间
+		"10.244.2.1", // 网关IP地址
 	)
 	if err != nil {
 		logrus.Fatalf("[main] - Failed to init NS: %v", err)
