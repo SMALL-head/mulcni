@@ -23,6 +23,10 @@ func ExistsQdisc(ifaceName string) bool {
 }
 
 func AddClsactQdiscIntoDev(ifaceName string) error {
+	if ExistsQdisc(ifaceName) {
+		logrus.Infof("clsact qdisc already exists on iface %s", ifaceName)
+		return nil
+	}
 	cmd := "tc qdisc add dev " + ifaceName + " clsact"
 	_, err := execCmd(cmd)
 	if err != nil {
