@@ -70,8 +70,8 @@ int tc_ingress_redirect(struct __sk_buff *skb)
     __u32 da = bpf_ntohl(ip->daddr);
     key.da = da;
     struct ipDstValue *v = bpf_map_lookup_elem(&ip2Iface, &key);
+    bpf_skb_change_type(skb, PACKET_HOST); // 直接改包类型就不会校验mac地址了，这种做法感觉很暴力，可以作为兜底。不过我还是先尝试更改mac地址
     if (v) {
-        bpf_skb_change_type(skb, PACKET_HOST); // 直接改包类型就不会校验mac地址了，这种做法感觉很暴力，可以作为兜底。不过我还是先尝试更改mac地址
         __u8 dst_mac[ETH_ALEN];
         // bpf_memcpy(src_mac, eth->h_source, ETH_ALEN);
         bpf_memcpy(dst_mac, v->mac, ETH_ALEN);
@@ -83,7 +83,8 @@ int tc_ingress_redirect(struct __sk_buff *skb)
     __u32 vxlan_key = VXLAN_VETH_KEY;
     __u32 *vxlan_device_id = bpf_map_lookup_elem(&vxlanIface, &vxlan_key);
     if (vxlan_device_id) {
-        return bpf_redirect_peer(*vxlan_device_id, 0); // 发送到vxlan设备
+        trace_printk("vxlan device found, key: %d, iface index: %d\n", vxlan_key, *vxlan_device_id);
+        return bpf_redirect(*vxlan_device_id, 0); // 发送到vxlan设备
     } else {
         trace_printk("vxlan device not found, key: %d\n", vxlan_key);
         return TC_ACT_UNSPEC;

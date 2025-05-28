@@ -18,6 +18,13 @@ func Ipv4Str2Uint32(ipv4Str string) (uint32, error) {
 	return res, nil
 }
 
+func Ip2Uint32(ip_ net.IP) (uint32, error) {
+	if ip_.To4() == nil {
+		return 0, fmt.Errorf("IP is not IPv4: %s", ip_.String())
+	}
+	return binary.BigEndian.Uint32(ip_.To4()), nil
+}
+
 // AddRouteInNS 在nnss命令空间中添加arp表项，ifaceName网卡名称需要保证在ns中能够查找到
 func AddArpInNS(nnss ns.NetNS, ipStr string, ifaceName string, macAddr net.HardwareAddr) error {
 	return nnss.Do(func(nn ns.NetNS) error {

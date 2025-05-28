@@ -48,6 +48,20 @@ func initNS(nsName string, gateWayIPStr string) (cleanup func(), err error) {
 		logrus.Errorf("Failed to add clsact qdisc into device %s: %v", vethInfo.IfaceNameHost, err)
 	}
 
+	// 在ip2Iface中添加对应的表项
+	ip2IfaceMap := tc.MountMap("ip2Iface", "", 4096, tc.IPDstKey{}, tc.IPDstValue{})
+	da, _ := iptools.Ip2Uint32(vethInfo.IfaceIp.IP)
+	if err = ip2IfaceMap.Put(
+		tc.IPDstKey{Da: da},
+		tc.IPDstValue{
+			Da:         da,
+			IfaceIndex: uint32(vethInfo.LinkIndexHost),
+			Mac:        [6]uint8(vethInfo.IfaceNsAddr),
+		},
+	); err != nil {
+		logrus.Errorf("Failed to put IPDstValue into ip2Iface map: %v", err)
+	}
+
 	// host主机中的veth pair
 	cicHost, cicHostPeer, err := ifacetools.CreateVethPair("cic-host", "cic-host-peer")
 	if err != nil {
@@ -146,7 +160,7 @@ func mountVxlanProc(vxlanl *netlink.Vxlan) (func(), error) {
 	dipVxlanMap := tc.MountMap("dipVxlan", "", 4096, tc.IPDstKey{}, tc.DIPVxlanValue{})
 	// TODO: 每个测试节点需要填充的对端信息是不同的
 	dst, _ := iptools.Ipv4Str2Uint32("10.244.1.0")
-	dstNodeIp, _ := iptools.Ipv4Str2Uint32("10.176.40.187")
+	dstNodeIp, _ := iptools.Ipv4Str2Uint32("10.176.40.188")
 	err := dipVxlanMap.Put(
 		tc.IPDstKey{Da: dst},
 		tc.DIPVxlanValue{

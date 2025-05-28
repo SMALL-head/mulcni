@@ -28,35 +28,40 @@ struct bpf_elf_map __section("maps") dipVxlan = {
 SEC("classifier")
 int vxlan_egress(struct __sk_buff *skb)
 {
+    trace_printk("vxlan egress: skb->protocol: %d\n", skb->protocol);
     void *data = (void *)(long)skb->data;
     void *data_end = (void *)(long)skb->data_end;
 
     struct ethhdr *eth = data;
 
     if ((void *)(eth + 1) > data_end) {
+        trace_printk("vxlan egress: eth header not complete\n");
         return TC_ACT_OK;
     }
 
     if (skb->protocol != bpf_htons(ETH_P_IP)) {
         // char fmt[] = "not ip packet: %d, expect: %d, skb->protocal: %d\n";
         // bpf_trace_printk(fmt, sizeof(fmt), skb->protocol, bpf_htons(ETH_P_IP), bpf_ntohs(skb->protocol));
+        trace_printk("vxlan egress: not an IP packet, protocol: %d\n", skb->protocol);
         return TC_ACT_UNSPEC;
     }
     struct iphdr *ip = (struct iphdr *)(eth + 1);
     // 确保IP头部完全在数据包内
     if ((void *)(ip + 1) > data_end) {
+        trace_printk("vxlan egress: ip header not complete\n");
         return TC_ACT_OK;
     }
     __u32 dst_ip = bpf_htonl(ip->daddr);
 
     struct ipDstKey key = {0};
     // key.da = dst_ip;
-    __u32 mask = 0xFFFFF000;
+    __u32 mask = 0xFFFFFF00;
     __u32 masked_ip = dst_ip & mask;
     key.da = masked_ip;
     struct dipVxlanValue *value = bpf_map_lookup_elem(&dipVxlan, &key);
     if (!value) {
         // 该da找不到对应的node信息，无法继续封装vxlan
+        trace_printk("vxlan egress: no dst ip found for %x\n", dst_ip);
         return TC_ACT_OK;
     }
     // 封装vxlan包
@@ -65,6 +70,7 @@ int vxlan_egress(struct __sk_buff *skb)
     __builtin_memset(&tunnel_key, 0, sizeof(tunnel_key));
 
     tunnel_key.remote_ipv4 = value->vxlanIP[ifaceIndex];
+    trace_printk("vxlan egress: remote_ipv4: %x\n", tunnel_key.remote_ipv4);
     tunnel_key.tunnel_id = DEFAULT_TUNNEL_ID;
     tunnel_key.tunnel_tos = 0;
     tunnel_key.tunnel_ttl = 64;

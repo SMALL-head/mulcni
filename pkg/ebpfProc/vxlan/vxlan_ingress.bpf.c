@@ -26,6 +26,7 @@ struct bpf_elf_map __section("maps") ip2Iface = {
 SEC("classifier")
 int vxlan_ingress(struct __sk_buff *skb)
 {
+    trace_printk("vxlan ingress: skb->protocol: %d\n", skb->protocol);
     void *data = (void *)(long)skb->data;
     void *data_end = (void *)(long)skb->data_end;
 
@@ -53,6 +54,7 @@ int vxlan_ingress(struct __sk_buff *skb)
     struct ipDstValue *value = bpf_map_lookup_elem(&ip2Iface, &key);
     if (!value) {
         // 该da找不到dst ip对应的veth信息
+        trace_printk("vxlan ingress: no dst ip found for %x\n", dst_ip);
         return TC_ACT_OK;
     }
     bpf_skb_change_type(skb, PACKET_HOST);
