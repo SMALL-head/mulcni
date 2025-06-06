@@ -84,7 +84,7 @@ int tc_ingress_redirect(struct __sk_buff *skb)
     __u32 *vxlan_device_id = bpf_map_lookup_elem(&vxlanIface, &vxlan_key);
     if (vxlan_device_id) {
         trace_printk("vxlan device found, key: %d, iface index: %d\n", vxlan_key, *vxlan_device_id);
-        return bpf_redirect(*vxlan_device_id, 0); // 发送到vxlan设备
+        return bpf_redirect(*vxlan_device_id, 0); // 发送到vxlan设备，对于该函数而言，如果不指定flag，那么数据包将会发送到target的egress hook中
     } else {
         trace_printk("vxlan device not found, key: %d\n", vxlan_key);
         return TC_ACT_UNSPEC;
