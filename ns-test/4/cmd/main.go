@@ -9,7 +9,6 @@ import (
 	"github.com/SMALL-head/mulcni/pkg/ebpfProc/tc"
 	"github.com/SMALL-head/mulcni/utils/ifacetools"
 	"github.com/SMALL-head/mulcni/utils/iptools"
-	"github.com/SMALL-head/mulcni/utils/tctools"
 	"github.com/containernetworking/plugins/pkg/ns"
 	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
@@ -17,93 +16,88 @@ import (
 )
 
 // gatewayIPStr 是网关的IP地址,不带掩码位
-func initNS(nsName string, gateWayIPStr string) (cleanup func(), err error) {
+func initNS(nsName string, gateWayIPStr1, gateWayIPStr2 string) (cleanup func(), err error) {
 	ns1, err := ns.GetNS(fmt.Sprintf("/var/run/netns/%s", nsName))
 	if err != nil {
 		logrus.Errorf("Failed to get %s: %v", nsName, err)
 		return nil, err
 	}
 
-	// veth pair
-	vIp, vIpNet, err := net.ParseCIDR("10.244.2.2/32")
-	if err != nil {
-		logrus.Fatalf("Failed to parse CIDR: %v", err)
-	}
-	vIpNet.IP = vIp
-
-	vethInfo, err := ifacetools.CreateVethInNs(
+	vethInfo1, err := ifacetools.CreateVethInNs(
 		fmt.Sprintf("/var/run/netns/%s", nsName),
-		fmt.Sprintf("h-%s", nsName),
-		fmt.Sprintf("v-%s", nsName),
-		vIpNet.String())
+		fmt.Sprintf("h-%s%d", nsName, 1),
+		fmt.Sprintf("v-%s%d", nsName, 1),
+		"10.244.2.2/32",
+	)
 	if err != nil {
 		if err.Error() == "file exists" {
-			logrus.Infof("veth pair \"%s\"<->\"%s\" already exists", vethInfo.IfaceNameHost, vethInfo.IfaceNameNs)
+			logrus.Infof("veth pair \"%s\"<->\"%s\" already exists", vethInfo1.IfaceNameHost, vethInfo1.IfaceNameNs)
 		} else {
 			logrus.Fatalf("Failed to create veth pair in ns: %v", err)
 		}
 	}
-	err = tctools.AddClsactQdiscIntoDev(vethInfo.IfaceNameHost)
+
+	vethInfo2, err := ifacetools.CreateVethInNs(
+		fmt.Sprintf("/var/run/netns/%s", nsName),
+		fmt.Sprintf("h-%s%d", nsName, 2),
+		fmt.Sprintf("v-%s%d", nsName, 2),
+		"10.224.2.2/32",
+	)
 	if err != nil {
-		logrus.Errorf("Failed to add clsact qdisc into device %s: %v", vethInfo.IfaceNameHost, err)
+		if err.Error() == "file exists" {
+			logrus.Infof("veth pair \"%s\"<->\"%s\" already exists", vethInfo2.IfaceNameHost, vethInfo2.IfaceNameNs)
+		} else {
+			logrus.Fatalf("Failed to create veth pair in ns: %v", err)
+		}
 	}
 
 	// 在ip2Iface中添加对应的表项
 	ip2IfaceMap := tc.MountMap("ip2Iface", "", 4096, tc.IPDstKey{}, tc.IPDstValue{})
-	da, _ := iptools.Ip2Uint32(vethInfo.IfaceIp.IP)
+	da, _ := iptools.Ip2Uint32(vethInfo1.IfaceIp.IP)
 	if err = ip2IfaceMap.Put(
 		tc.IPDstKey{Da: da},
 		tc.IPDstValue{
 			Da:         da,
-			IfaceIndex: uint32(vethInfo.LinkIndexHost),
-			Mac:        [6]uint8(vethInfo.IfaceNsAddr),
+			IfaceIndex: uint32(vethInfo1.LinkIndexHost),
+			Mac:        [6]uint8(vethInfo1.IfaceNsAddr),
+		},
+	); err != nil {
+		logrus.Errorf("Failed to put IPDstValue into ip2Iface map: %v", err)
+	}
+	da, _ = iptools.Ip2Uint32(vethInfo2.IfaceIp.IP)
+	if err = ip2IfaceMap.Put(
+		tc.IPDstKey{Da: da},
+		tc.IPDstValue{
+			Da:         da,
+			IfaceIndex: uint32(vethInfo2.LinkIndexHost),
+			Mac:        [6]uint8(vethInfo2.IfaceNsAddr),
 		},
 	); err != nil {
 		logrus.Errorf("Failed to put IPDstValue into ip2Iface map: %v", err)
 	}
 
 	// host主机中的veth pair
-	cicHost, cicHostPeer, err := ifacetools.CreateVethPair("cic-host", "cic-host-peer")
+	cicHost1, cicHostPeer1, err := ifacetools.CreateVethPair("cic-host1", "cic-host-peer1")
 	if err != nil {
 		if err.Error() == "file exists" {
-			logrus.Infof("veth pair \"cic-host\"<->\"cic-host-peer\" already exists")
+			logrus.Infof("veth pair \"cic-host1\"<->\"cic-host-peer1\" already exists")
 		} else {
 			logrus.Fatalf("Failed to create host gateway veth pair: %v", err)
 		}
 	}
-	gatewayIP, gatewayIpNet, _ := net.ParseCIDR(fmt.Sprintf("%s/24", gateWayIPStr))
-	gatewayIpNet.IP = gatewayIP
-	netlink.AddrAdd(cicHost, &netlink.Addr{IPNet: gatewayIpNet})
-	netlink.LinkSetUp(cicHost)
-	netlink.LinkSetUp(cicHostPeer)
-
-	// 添加路由信息
-	ns1.Do(func(_ ns.NetNS) error {
-		// route add -net {gatewayip} netmask 255.255.255.255 dev {veth_name}
-		gatewayIpForRoute, gatewatIfNetForRoute, _ := net.ParseCIDR(fmt.Sprintf("%s/32", gateWayIPStr))
-		gatewatIfNetForRoute.IP = gatewayIpForRoute
-		if err := netlink.RouteAdd(&netlink.Route{
-			Dst:       gatewatIfNetForRoute,
-			LinkIndex: vethInfo.LinkIndexNs,
-			Scope:     netlink.SCOPE_LINK,
-		}); err != nil {
-			logrus.Errorf("Failed to add route in ns: %v", err)
-			return err
-		}
-		// route add default gw {gatewayip} dev {veth_name}
-		if err := netlink.RouteAdd(&netlink.Route{
-			Gw:        gatewayIpForRoute,
-			LinkIndex: vethInfo.LinkIndexNs,
-		}); err != nil {
-			logrus.Errorf("Failed to add default route in ns: %v", err)
-			return err
-		}
-
-		return nil
-	})
+	gatewayIP1, gatewayIpNet1, _ := net.ParseCIDR(fmt.Sprintf("%s/24", gateWayIPStr1))
+	gatewayIpNet1.IP = gatewayIP1
+	netlink.AddrAdd(cicHost1, &netlink.Addr{IPNet: gatewayIpNet1})
+	netlink.LinkSetUp(cicHost1)
+	netlink.LinkSetUp(cicHostPeer1)
 
 	// arp 表项添加
-	err = iptools.AddArpInNS(ns1, gateWayIPStr, vethInfo.IfaceNameNs, cicHost.HardwareAddr)
+	err = iptools.AddArpInNS(ns1, gateWayIPStr1, vethInfo1.IfaceNameNs, cicHost1.HardwareAddr)
+	if err != nil {
+		logrus.Errorf("Failed to add ARP entry in ns: %v", err)
+		return nil, err
+	}
+	err = iptools.AddArpInNS(ns1, gateWayIPStr2, vethInfo2.IfaceNameNs, cicHost1.HardwareAddr)
 	if err != nil {
 		logrus.Errorf("Failed to add ARP entry in ns: %v", err)
 		return nil, err
@@ -124,9 +118,13 @@ func initNS(nsName string, gateWayIPStr string) (cleanup func(), err error) {
 	}
 
 	// tc ingress ebpf程序挂载到ns host端的veth上
-	cleanUpHostIngress, err := tc.AttachTCRedirectProg(vethInfo.IfaceNameHost)
+	cleanUpHostIngress1, err := tc.AttachTCRedirectProg(vethInfo1.IfaceNameHost)
 	if err != nil {
-		logrus.Errorf("Failed to attach tc ingress BPF to iface %s: %v", vethInfo.IfaceNameHost, err)
+		logrus.Errorf("Failed to attach tc ingress BPF to iface %s: %v", vethInfo1.IfaceNameHost, err)
+	}
+	cleanUpHostIngress2, err := tc.AttachTCRedirectProg(vethInfo2.IfaceNameHost)
+	if err != nil {
+		logrus.Errorf("Failed to attach tc ingress BPF to iface %s: %v", vethInfo2.IfaceNameHost, err)
 	}
 
 	cleanUpVxlanEIngress, err := mountVxlanProc(vxlanl)
@@ -147,7 +145,8 @@ func initNS(nsName string, gateWayIPStr string) (cleanup func(), err error) {
 		// if err := netlink.LinkDel(lhost); err != nil {
 		// 	logrus.Errorf("Failed to delete veth pair: %v", err)
 		// }
-		cleanUpHostIngress()
+		cleanUpHostIngress1()
+		cleanUpHostIngress2()
 		cleanUpVxlanEIngress()
 	}, nil
 
@@ -203,8 +202,9 @@ func main() {
 		logrus.Infof("Loaded environment variables from .env file")
 	}
 	cleanupFunc, err := initNS(
-		"ns3",        // 命名空间
+		"myns",       // 命名空间
 		"10.244.2.1", // 网关IP地址
+		"10.224.2.1", // 另一个网关IP地址
 	)
 	if err != nil {
 		logrus.Fatalf("[main] - Failed to init NS: %v", err)
