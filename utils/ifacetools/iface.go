@@ -163,12 +163,13 @@ func CreateVethInNs(nsPath string, ifaceNameHost, ifaceNameNs string, ipAddr str
 				logrus.Warnf("failed to set lo device up: %v", err)
 			}
 		}
-
+		var hostVethIdx int
 		if err = hostNs.Do(func(_ ns.NetNS) error {
 			l, err := netlink.LinkByName(hostVeth.Name)
 			if err != nil {
 				return err
 			}
+			hostVethIdx = l.Attrs().Index
 			return netlink.LinkSetUp(l)
 		}); err != nil {
 			logrus.Errorf("failed to set host veth up: %v", err)
@@ -180,7 +181,7 @@ func CreateVethInNs(nsPath string, ifaceNameHost, ifaceNameNs string, ipAddr str
 		res.IfaceIp = ipnet
 		res.IfaceHostAddr = hostVeth.HardwareAddr
 		res.IfaceNsAddr = nsVeth.HardwareAddr
-		res.LinkIndexHost = hostVeth.Index
+		res.LinkIndexHost = hostVethIdx
 		res.LinkIndexNs = nsVeth.Index
 		return nil
 	})

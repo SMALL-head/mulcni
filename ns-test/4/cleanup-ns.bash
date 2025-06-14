@@ -1,12 +1,12 @@
-ip netns delete myns
+ip netns delete ns1
 
 # cleanup veth pair if it exists
-if ip link show h-myns1 &>/dev/null; then
-    ip link del h-myns1
+if ip link show h-ns11 &>/dev/null; then
+    ip link del h-ns11
 fi
 
-if ip link show h-myns2 &>/dev/null; then
-    ip link del h-myns2
+if ip link show h-ns12 &>/dev/null; then
+    ip link del h-ns12
 fi
 
 # cleanup virtual gateway

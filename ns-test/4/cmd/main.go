@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"net"
 	"os"
 	"os/signal"
 
@@ -16,7 +15,7 @@ import (
 )
 
 // gatewayIPStr 是网关的IP地址,不带掩码位
-func initNS(nsName string, gateWayIPStr1, gateWayIPStr2 string) (cleanup func(), err error) {
+func initNS(nsName string, gateWayIPStr1, gateWayIPStr2 string, veth1IPStr, veth2IPStr string) (cleanup func(), err error) {
 	ns1, err := ns.GetNS(fmt.Sprintf("/var/run/netns/%s", nsName))
 	if err != nil {
 		logrus.Errorf("Failed to get %s: %v", nsName, err)
@@ -27,7 +26,7 @@ func initNS(nsName string, gateWayIPStr1, gateWayIPStr2 string) (cleanup func(),
 		fmt.Sprintf("/var/run/netns/%s", nsName),
 		fmt.Sprintf("h-%s%d", nsName, 1),
 		fmt.Sprintf("v-%s%d", nsName, 1),
-		"10.244.2.2/32",
+		veth1IPStr,
 	)
 	if err != nil {
 		if err.Error() == "file exists" {
@@ -41,7 +40,7 @@ func initNS(nsName string, gateWayIPStr1, gateWayIPStr2 string) (cleanup func(),
 		fmt.Sprintf("/var/run/netns/%s", nsName),
 		fmt.Sprintf("h-%s%d", nsName, 2),
 		fmt.Sprintf("v-%s%d", nsName, 2),
-		"10.224.2.2/32",
+		veth2IPStr,
 	)
 	if err != nil {
 		if err.Error() == "file exists" {
@@ -77,27 +76,27 @@ func initNS(nsName string, gateWayIPStr1, gateWayIPStr2 string) (cleanup func(),
 	}
 
 	// host主机中的veth pair
-	cicHost1, cicHostPeer1, err := ifacetools.CreateVethPair("cic-host1", "cic-host-peer1")
-	if err != nil {
-		if err.Error() == "file exists" {
-			logrus.Infof("veth pair \"cic-host1\"<->\"cic-host-peer1\" already exists")
-		} else {
-			logrus.Fatalf("Failed to create host gateway veth pair: %v", err)
-		}
-	}
-	gatewayIP1, gatewayIpNet1, _ := net.ParseCIDR(fmt.Sprintf("%s/24", gateWayIPStr1))
-	gatewayIpNet1.IP = gatewayIP1
-	netlink.AddrAdd(cicHost1, &netlink.Addr{IPNet: gatewayIpNet1})
-	netlink.LinkSetUp(cicHost1)
-	netlink.LinkSetUp(cicHostPeer1)
+	// cicHost1, cicHostPeer1, err := ifacetools.CreateVethPair("cic-host1", "cic-host-peer1")
+	// if err != nil {
+	// 	if err.Error() == "file exists" {
+	// 		logrus.Infof("veth pair \"cic-host1\"<->\"cic-host-peer1\" already exists")
+	// 	} else {
+	// 		logrus.Fatalf("Failed to create host gateway veth pair: %v", err)
+	// 	}
+	// }
+	// gatewayIP1, gatewayIpNet1, _ := net.ParseCIDR(fmt.Sprintf("%s/24", gateWayIPStr1))
+	// gatewayIpNet1.IP = gatewayIP1
+	// netlink.AddrAdd(cicHost1, &netlink.Addr{IPNet: gatewayIpNet1})
+	// netlink.LinkSetUp(cicHost1)
+	// netlink.LinkSetUp(cicHostPeer1)
 
 	// arp 表项添加
-	err = iptools.AddArpInNS(ns1, gateWayIPStr1, vethInfo1.IfaceNameNs, cicHost1.HardwareAddr)
+	err = iptools.AddArpInNS(ns1, gateWayIPStr1, vethInfo1.IfaceNameNs, vethInfo1.IfaceHostAddr)
 	if err != nil {
 		logrus.Errorf("Failed to add ARP entry in ns: %v", err)
 		return nil, err
 	}
-	err = iptools.AddArpInNS(ns1, gateWayIPStr2, vethInfo2.IfaceNameNs, cicHost1.HardwareAddr)
+	err = iptools.AddArpInNS(ns1, gateWayIPStr2, vethInfo2.IfaceNameNs, vethInfo2.IfaceHostAddr)
 	if err != nil {
 		logrus.Errorf("Failed to add ARP entry in ns: %v", err)
 		return nil, err
@@ -158,9 +157,21 @@ func mountVxlanProc(vxlanl *netlink.Vxlan) (func(), error) {
 	// a. 先创建所需要的map，往里面填充对端信息
 	dipVxlanMap := tc.MountMap("dipVxlan", "", 4096, tc.IPDstKey{}, tc.DIPVxlanValue{})
 	// TODO: 每个测试节点需要填充的对端信息是不同的
-	dst, _ := iptools.Ipv4Str2Uint32("10.244.1.0")
-	dstNodeIp, _ := iptools.Ipv4Str2Uint32("10.176.40.188")
+	dst, _ := iptools.Ipv4Str2Uint32(os.Getenv("VXLAN_DST_NS_IP1"))
+	dstNodeIp, _ := iptools.Ipv4Str2Uint32(os.Getenv("VXLAN_DST_IP1"))
 	err := dipVxlanMap.Put(
+		tc.IPDstKey{Da: dst},
+		tc.DIPVxlanValue{
+			IfaceIndex: [8]uint32{uint32(vxlanl.Index)},
+			VxlanIP:    [8]uint32{dstNodeIp},
+		},
+	)
+	if err != nil {
+		logrus.Errorf("Failed to put  DIPVxlanValue into map: %v", err)
+		return nil, err
+	}
+	dst, _ = iptools.Ipv4Str2Uint32(os.Getenv("VXLAN_DST_NS_IP2"))
+	err = dipVxlanMap.Put(
 		tc.IPDstKey{Da: dst},
 		tc.DIPVxlanValue{
 			IfaceIndex: [8]uint32{uint32(vxlanl.Index)},
@@ -201,10 +212,17 @@ func main() {
 	} else {
 		logrus.Infof("Loaded environment variables from .env file")
 	}
+	ns1Name := os.Getenv("NS1")
+	gatewayIP1 := os.Getenv("GATEWAY_IP1")
+	gatewayIP2 := os.Getenv("GATEWAY_IP2")
+	veth1IP := os.Getenv("VETH1_IP")
+	veth2IP := os.Getenv("VETH2_IP")
 	cleanupFunc, err := initNS(
-		"myns",       // 命名空间
-		"10.244.2.1", // 网关IP地址
-		"10.224.2.1", // 另一个网关IP地址
+		ns1Name,    // 命名空间
+		gatewayIP1, // 网关IP地址
+		gatewayIP2, // 另一个网关IP地址
+		veth1IP,    // veth1的IP地址
+		veth2IP,    // veth2的IP地址
 	)
 	if err != nil {
 		logrus.Fatalf("[main] - Failed to init NS: %v", err)

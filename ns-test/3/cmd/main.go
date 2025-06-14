@@ -17,7 +17,7 @@ import (
 )
 
 // gatewayIPStr 是网关的IP地址,不带掩码位
-func initNS(nsName string, gateWayIPStr string) (cleanup func(), err error) {
+func initNS(nsName string, gateWayIPStr string, vethNSIPStr string) (cleanup func(), err error) {
 	ns1, err := ns.GetNS(fmt.Sprintf("/var/run/netns/%s", nsName))
 	if err != nil {
 		logrus.Errorf("Failed to get %s: %v", nsName, err)
@@ -25,7 +25,7 @@ func initNS(nsName string, gateWayIPStr string) (cleanup func(), err error) {
 	}
 
 	// veth pair
-	vIp, vIpNet, err := net.ParseCIDR("10.244.2.2/32")
+	vIp, vIpNet, err := net.ParseCIDR(vethNSIPStr)
 	if err != nil {
 		logrus.Fatalf("Failed to parse CIDR: %v", err)
 	}
@@ -129,7 +129,7 @@ func initNS(nsName string, gateWayIPStr string) (cleanup func(), err error) {
 		logrus.Errorf("Failed to attach tc ingress BPF to iface %s: %v", vethInfo.IfaceNameHost, err)
 	}
 
-	cleanUpVxlanEIngress, err := mountVxlanProc(vxlanl)
+	cleanUpVxlanEIngress, err := mountVxlanProc(vxlanl, os.Getenv("VXLAN_DST_NS_IP"), os.Getenv("VXLAN_DST_IP"))
 	if err != nil {
 		logrus.Errorf("Failed to mount vxlan ingress BPF: %v", err)
 	}
@@ -154,13 +154,13 @@ func initNS(nsName string, gateWayIPStr string) (cleanup func(), err error) {
 }
 
 // return 清理函数，该清理函数用于清除vxlan设备上挂载的ingress 和 egress tc程序
-func mountVxlanProc(vxlanl *netlink.Vxlan) (func(), error) {
+func mountVxlanProc(vxlanl *netlink.Vxlan, vxlanDstNsIp string, vxlanDstIp string) (func(), error) {
 	// vxlan ebpf程序挂载
 	// a. 先创建所需要的map，往里面填充对端信息
 	dipVxlanMap := tc.MountMap("dipVxlan", "", 4096, tc.IPDstKey{}, tc.DIPVxlanValue{})
 	// TODO: 每个测试节点需要填充的对端信息是不同的
-	dst, _ := iptools.Ipv4Str2Uint32("10.244.1.0")
-	dstNodeIp, _ := iptools.Ipv4Str2Uint32("10.176.40.188")
+	dst, _ := iptools.Ipv4Str2Uint32(vxlanDstNsIp)
+	dstNodeIp, _ := iptools.Ipv4Str2Uint32(vxlanDstIp)
 	err := dipVxlanMap.Put(
 		tc.IPDstKey{Da: dst},
 		tc.DIPVxlanValue{
@@ -202,9 +202,13 @@ func main() {
 	} else {
 		logrus.Infof("Loaded environment variables from .env file")
 	}
+	ns3Name := os.Getenv("NS3")
+	gatewayIP := os.Getenv("GATEWAY_IP")
+	vethIP := os.Getenv("VETH_IP")
 	cleanupFunc, err := initNS(
-		"ns3",        // 命名空间
-		"10.244.2.1", // 网关IP地址
+		ns3Name,   // 命名空间
+		gatewayIP, // 网关IP地址
+		vethIP,
 	)
 	if err != nil {
 		logrus.Fatalf("[main] - Failed to init NS: %v", err)

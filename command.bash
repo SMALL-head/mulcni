@@ -26,3 +26,5 @@ watch -d -n 1 ip -s link show dev cic-host # 查看cic-host网卡中的tx(transp
 
 # go test 命令指定特定的测试函数，网上说支持正则
 go test -run TestXdpProg # 运行TestXdpProg测试函数
+
+mpstat -P ALL 1 # 每1秒打印每个CPU的使用情况
