@@ -171,11 +171,14 @@ func mountVxlanProc(vxlanl *netlink.Vxlan) (func(), error) {
 		return nil, err
 	}
 	dst, _ = iptools.Ipv4Str2Uint32(os.Getenv("VXLAN_DST_NS_IP2"))
+	lbFactor := uint16(0) // 负载均衡因子，暂时不考虑
+	lbFactor |= (1 << 8)
 	err = dipVxlanMap.Put(
 		tc.IPDstKey{Da: dst},
 		tc.DIPVxlanValue{
 			IfaceIndex: [8]uint32{uint32(vxlanl.Index)},
 			VxlanIP:    [8]uint32{dstNodeIp},
+			LBFactor:   lbFactor,
 		},
 	)
 	if err != nil {

@@ -34,6 +34,8 @@ type IPDstValue struct {
 type DIPVxlanValue struct {
 	IfaceIndex [8]uint32
 	VxlanIP    [8]uint32
+	LBFactor   uint16 // 高8位表示有效数量，低8为表示负载均衡因子
+	Padding    uint16
 }
 
 func init() {

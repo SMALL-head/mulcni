@@ -31,4 +31,5 @@ struct ipDstValue {
 struct dipVxlanValue {
     __u32 ifaceIndex[8]; // 最多8个接口
     __u32 vxlanIP[8]; // 与上面的接口一一对应
+    __u16 lb_factor; // 上述接口负载均衡因子,高8位表示有效接口数量，低8位表示负载均衡因子
 };

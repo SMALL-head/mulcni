@@ -13,7 +13,7 @@
 #include "common.h"
 
 #define DEFAULT_TUNNEL_ID 13001
-
+static __u32 choose_iface_index(struct dipVxlanValue *valueu);
 
 // 用于选择远端点，key为远端node对应的子网ip，value为该子网ip可以选择的网卡信息
 struct bpf_elf_map __section("maps") dipVxlan = {
@@ -65,7 +65,12 @@ int vxlan_egress(struct __sk_buff *skb)
         return TC_ACT_OK;
     }
     // 封装vxlan包
-    __u32 ifaceIndex = 0; // 网卡负载均衡
+    __u32 ifaceIndex = choose_iface_index(value); // 网卡负载均衡
+    if (ifaceIndex >= 8) {
+        trace_printk("vxlan egress: ifaceIndex out of range: %d\n", ifaceIndex);
+        return TC_ACT_OK; // 如果ifaceIndex不在范围内，直接返回
+    }
+    
     struct bpf_tunnel_key tunnel_key;
     __builtin_memset(&tunnel_key, 0, sizeof(tunnel_key));
 
@@ -81,6 +86,19 @@ int vxlan_egress(struct __sk_buff *skb)
         return TC_ACT_SHOT;
     }
     return TC_ACT_OK;
+}
+
+static __u32 choose_iface_index(struct dipVxlanValue *value) {
+    // value空校验请在调用函数前进行
+    if (!value) {
+        return 0;
+    }
+    __u8 valid_len = (value->lb_factor & 0xFF00) >> 8;  // 高8位表示有效接口数量
+    __u8 lb_factor = value->lb_factor & 0x00FF;         // 低8位表示负载均衡因子
+    __u32 res = lb_factor;                              // 简单的轮询负载均衡
+    lb_factor = (lb_factor + 1) % valid_len;
+    return res;                                         // 简单的轮询负载均衡
+    
 }
 
 // 在文件末尾添加或修改为以下内容
