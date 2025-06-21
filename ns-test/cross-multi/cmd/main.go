@@ -158,15 +158,16 @@ func mountVxlanProc(vxlanl *netlink.Vxlan) (func(), error) {
 	dipVxlanMap := tc.MountMap("dipVxlan", "", 4096, tc.IPDstKey{}, tc.DIPVxlanValue{})
 	// TODO: 每个测试节点需要填充的对端信息是不同的
 	dst, _ := iptools.Ipv4Str2Uint32(os.Getenv("VXLAN_DST_NS_IP1"))
-	dstNodeIp, _ := iptools.Ipv4Str2Uint32(os.Getenv("VXLAN_DST_IP1"))
+	dstNodeIp1, _ := iptools.Ipv4Str2Uint32(os.Getenv("VXLAN_DST_IP1"))
+	dstNodeIp2, _ := iptools.Ipv4Str2Uint32(os.Getenv("VXLAN_DST_IP2"))
 	lbFactor := uint16(0)
 	// 高8位设置有效数量
 	lbFactor |= (2 << 8)
 	err := dipVxlanMap.Put(
 		tc.IPDstKey{Da: dst},
 		tc.DIPVxlanValue{
-			IfaceIndex: [8]uint32{uint32(vxlanl.Index)},
-			VxlanIP:    [8]uint32{dstNodeIp},
+			IfaceIndex: [8]uint32{uint32(vxlanl.Index), uint32(vxlanl.Index)},
+			VxlanIP:    [8]uint32{dstNodeIp1, dstNodeIp2},
 			LBFactor:   lbFactor,
 		},
 	)
@@ -178,8 +179,9 @@ func mountVxlanProc(vxlanl *netlink.Vxlan) (func(), error) {
 	err = dipVxlanMap.Put(
 		tc.IPDstKey{Da: dst},
 		tc.DIPVxlanValue{
-			IfaceIndex: [8]uint32{uint32(vxlanl.Index)},
-			VxlanIP:    [8]uint32{dstNodeIp},
+			IfaceIndex: [8]uint32{uint32(vxlanl.Index), uint32(vxlanl.Index)},
+			VxlanIP:    [8]uint32{dstNodeIp1, dstNodeIp2},
+			LBFactor:   lbFactor,
 		},
 	)
 	if err != nil {
