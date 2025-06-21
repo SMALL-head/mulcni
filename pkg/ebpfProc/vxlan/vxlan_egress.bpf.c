@@ -97,6 +97,7 @@ static __u32 choose_iface_index(struct dipVxlanValue *value) {
     __u8 lb_factor = value->lb_factor & 0x00FF;         // 低8位表示负载均衡因子
     __u32 res = lb_factor;                              // 简单的轮询负载均衡
     lb_factor = (lb_factor + 1) % valid_len;
+    value->lb_factor = (valid_len << 8) | lb_factor;    // 更新负载均衡因子
     return res;                                         // 简单的轮询负载均衡
     
 }
