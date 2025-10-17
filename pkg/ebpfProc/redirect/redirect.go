@@ -119,7 +119,7 @@ func TCIngressProc(ctx context.Context, ifaceName string) error {
 	// 	logrus.Fatalf("Failed to get interface %s: %v", ifaceName, err)
 	// }
 
-	if err := tctools.AttachIngressBPFToIface(ifaceName, "/root/mulcni/pkg/ebpfProc/tc/tc.o"); err != nil {
+	if err := tctools.AttachIngressBPFToIface(ifaceName, "/root/mulcni/pkg/ebpfProc/tc/tc.o", "classifier/redirect"); err != nil {
 		logrus.Errorf("Failed to attach BPF to iface: %v", err)
 		return err
 	}

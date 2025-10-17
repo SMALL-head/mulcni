@@ -146,5 +146,5 @@ func _RedirectClose(closers ...io.Closer) error {
 
 // Do not access this directly.
 //
-//go:embed redirect_x86_bpfel.o
+//go:embed redirect_v2.o
 var _RedirectBytes []byte

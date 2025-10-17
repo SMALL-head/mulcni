@@ -12,6 +12,30 @@ import (
 	"github.com/cilium/ebpf"
 )
 
+type xdpDipVxlanValue struct {
+	IfaceIndex [8]uint32
+	VxlanIP    [8]uint32
+	LbFactor   uint16
+	_          [2]byte
+}
+
+type xdpIfaceMac struct {
+	Ipaddr uint32
+	Mac    [6]uint8
+	_      [2]byte
+}
+
+type xdpIpDstKey struct{ Da uint32 }
+
+type xdpIpDstValue struct {
+	Da         uint32
+	IfaceIndex uint32
+	Mac        [6]uint8
+	_          [2]byte
+}
+
+type xdpVxlanHeader struct{ Header [50]uint8 }
+
 // loadXdp returns the embedded CollectionSpec for xdp.
 func loadXdp() (*ebpf.CollectionSpec, error) {
 	reader := bytes.NewReader(_XdpBytes)
@@ -54,14 +78,20 @@ type xdpSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type xdpProgramSpecs struct {
-	XdpRedirectGateway *ebpf.ProgramSpec `ebpf:"xdp_redirect_gateway"`
+	XdpRedirectGateway    *ebpf.ProgramSpec `ebpf:"xdp_redirect_gateway"`
+	XdpStripVxlanRedirect *ebpf.ProgramSpec `ebpf:"xdp_strip_vxlan_redirect"`
 }
 
 // xdpMapSpecs contains maps before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type xdpMapSpecs struct {
-	Gateway *ebpf.MapSpec `ebpf:"gateway"`
+	DipVxlan       *ebpf.MapSpec `ebpf:"dipVxlan"`
+	Gateway        *ebpf.MapSpec `ebpf:"gateway"`
+	IfaceMacMap    *ebpf.MapSpec `ebpf:"ifaceMacMap"`
+	Ip2Iface       *ebpf.MapSpec `ebpf:"ip2Iface"`
+	VxlanHeaderMap *ebpf.MapSpec `ebpf:"vxlanHeaderMap"`
+	VxlanIface     *ebpf.MapSpec `ebpf:"vxlanIface"`
 }
 
 // xdpVariableSpecs contains global variables before they are loaded into the kernel.
@@ -90,12 +120,22 @@ func (o *xdpObjects) Close() error {
 //
 // It can be passed to loadXdpObjects or ebpf.CollectionSpec.LoadAndAssign.
 type xdpMaps struct {
-	Gateway *ebpf.Map `ebpf:"gateway"`
+	DipVxlan       *ebpf.Map `ebpf:"dipVxlan"`
+	Gateway        *ebpf.Map `ebpf:"gateway"`
+	IfaceMacMap    *ebpf.Map `ebpf:"ifaceMacMap"`
+	Ip2Iface       *ebpf.Map `ebpf:"ip2Iface"`
+	VxlanHeaderMap *ebpf.Map `ebpf:"vxlanHeaderMap"`
+	VxlanIface     *ebpf.Map `ebpf:"vxlanIface"`
 }
 
 func (m *xdpMaps) Close() error {
 	return _XdpClose(
+		m.DipVxlan,
 		m.Gateway,
+		m.IfaceMacMap,
+		m.Ip2Iface,
+		m.VxlanHeaderMap,
+		m.VxlanIface,
 	)
 }
 
@@ -109,12 +149,14 @@ type xdpVariables struct {
 //
 // It can be passed to loadXdpObjects or ebpf.CollectionSpec.LoadAndAssign.
 type xdpPrograms struct {
-	XdpRedirectGateway *ebpf.Program `ebpf:"xdp_redirect_gateway"`
+	XdpRedirectGateway    *ebpf.Program `ebpf:"xdp_redirect_gateway"`
+	XdpStripVxlanRedirect *ebpf.Program `ebpf:"xdp_strip_vxlan_redirect"`
 }
 
 func (p *xdpPrograms) Close() error {
 	return _XdpClose(
 		p.XdpRedirectGateway,
+		p.XdpStripVxlanRedirect,
 	)
 }
 

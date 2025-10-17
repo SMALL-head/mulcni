@@ -11,13 +11,21 @@
 #include <linux/if_packet.h>
 #include "common.h"
 
-struct bpf_elf_map __section("maps") ip2Iface = {
-	.type		= BPF_MAP_TYPE_HASH,
-	.size_key	= sizeof(struct ipDstKey),
-	.size_value	= sizeof(struct ipDstValue),
-	.pinning	= PIN_GLOBAL_NS,
-	.max_elem	= 4096,
-};
+// struct bpf_elf_map __section("maps") ip2Iface = {
+// 	.type		= BPF_MAP_TYPE_HASH,
+// 	.size_key	= sizeof(struct ipDstKey),
+// 	.size_value	= sizeof(struct ipDstValue),
+// 	.pinning	= PIN_GLOBAL_NS,
+// 	.max_elem	= 4096,
+// };
+
+// struct {
+//     __uint(type, BPF_MAP_TYPE_HASH);
+//     __uint(max_entries, 4096);
+//     __type(key, struct ipDstKey);
+//     __type(value, struct ipDstValue);
+//     __uint(pinning, LIBBPF_PIN_BY_NAME);
+// } ip2Iface SEC(".maps");
 
 
 // 这里说一下vxlan收包这边的逻辑：当一个vxlan包从源节点到达目标节点后，这个包会被解封装。

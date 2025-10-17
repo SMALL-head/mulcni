@@ -28,3 +28,8 @@ watch -d -n 1 ip -s link show dev cic-host # 查看cic-host网卡中的tx(transp
 go test -run TestXdpProg # 运行TestXdpProg测试函数
 
 mpstat -P ALL 1 # 每1秒打印每个CPU的使用情况
+
+cat /sys/kernel/debug/tracing/trace_pipe // bpf trace信息查看
+
+# rps相关
+cat /sys/class/net/h-ns1/queues/rx-0/rps_cpus # 查看rps_cpus配置

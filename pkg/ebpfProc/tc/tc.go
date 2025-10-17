@@ -38,6 +38,14 @@ type DIPVxlanValue struct {
 	Padding    uint16
 }
 
+type VxlanHeader struct{ Header [50]uint8 }
+
+type IfaceMac struct {
+	Ipaddr uint32
+	Mac    [6]uint8
+	_      [2]byte
+}
+
 func init() {
 	if err := godotenv.Load(); err != nil {
 		logrus.Warnf("Failed to load .env file: %v", err)
@@ -97,7 +105,7 @@ func AttachTCRedirectProg(ifaceName string) (UnMountTCFunc, error) {
 		}
 		return nil
 	}
-	return unMountFunc, tctools.AttachIngressBPFToIface(ifaceName, tcObjFilePath)
+	return unMountFunc, tctools.AttachIngressBPFToIface(ifaceName, tcObjFilePath, "classifier/redirect")
 }
 
 func AttachTCVxlanEgressProg(ifaceName string) (UnMountTCFunc, error) {
@@ -117,7 +125,27 @@ func AttachTCVxlanEgressProg(ifaceName string) (UnMountTCFunc, error) {
 		}
 		return nil
 	}
-	return unMountFunc, tctools.AttachEgressBPFToIface(ifaceName, tcVxlanEgressPath)
+	return unMountFunc, tctools.AttachEgressBPFToIface(ifaceName, tcVxlanEgressPath, "classifier")
+}
+
+func AttachTCIngressProgWithSec(ifaceName string, secName string) (UnMountTCFunc, error) {
+	if tcObjFilePath == "" {
+		tcObjFilePath = "/root/mulcni/pkg/ebpfProc/tc/tc.o"
+	}
+	if !tctools.ExistsQdisc(ifaceName) {
+		if err := tctools.AddClsactQdiscIntoDev(ifaceName); err != nil {
+			logrus.Errorf("Failed to add clsact qdisc into iface %s: %v", ifaceName, err)
+			return nil, err
+		}
+	}
+	unMountFunc := func() error {
+		if err := tctools.DeleteIngressBPFFromIface(ifaceName); err != nil {
+			logrus.Errorf("Failed to delete ingress BPF from iface %s: %v", ifaceName, err)
+			return err
+		}
+		return nil
+	}
+	return unMountFunc, tctools.AttachIngressBPFToIface(ifaceName, tcObjFilePath, secName)
 }
 
 func AttachTCVxlanIngressProg(ifaceName string) (UnMountTCFunc, error) {
@@ -137,5 +165,5 @@ func AttachTCVxlanIngressProg(ifaceName string) (UnMountTCFunc, error) {
 		}
 		return nil
 	}
-	return unMountFunc, tctools.AttachIngressBPFToIface(ifaceName, tcVxlanIngressPath)
+	return unMountFunc, tctools.AttachIngressBPFToIface(ifaceName, tcVxlanIngressPath, "classifier")
 }

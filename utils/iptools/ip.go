@@ -2,8 +2,10 @@ package iptools
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"net"
+	"strings"
 
 	"github.com/containernetworking/plugins/pkg/ns"
 	"github.com/vishvananda/netlink"
@@ -46,4 +48,110 @@ func AddArpInNS(nnss ns.NetNS, ipStr string, ifaceName string, macAddr net.Hardw
 		return nil
 	})
 
+}
+
+func MacAddrSlice2Array6(mac net.HardwareAddr) ([6]byte, error) {
+	var res [6]byte
+	if len(mac) < 6 {
+		return [6]byte{}, errors.New("mac addr len less than 6")
+	}
+	for i := 0; i < 6; i++ {
+		res[i] = mac[i]
+	}
+
+	return res, nil
+}
+
+func GetInterfaceByIpaddr(ipAddr string) (*net.Interface, error) {
+	ip := net.ParseIP(ipAddr)
+	if ip == nil {
+		return nil, fmt.Errorf("invalid IP address: %s", ipAddr)
+	}
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+	for _, iface := range ifaces {
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			var currentIP net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				currentIP = v.IP
+			case *net.IPAddr:
+				currentIP = v.IP
+			}
+			if currentIP.Equal(ip) {
+				return &iface, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("no interface found with IP address: %s", ipAddr)
+}
+
+// GetInterfaceByIpv4Cidr 根据cidr获取对应的网卡信息
+//
+// cidrStr 示例： 192.168.31.3/23
+func GetInterfaceByIpv4Cidr(cidrStr string) (*net.Interface, error) {
+	_, ipNet, err := net.ParseCIDR(cidrStr)
+	if err != nil {
+		return nil, err
+	}
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, iface := range ifaces {
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			// 需要判断addr是否是ipv4
+			s := addr.String()
+			ip, ipnet, err := net.ParseCIDR(s)
+			if err != nil {
+				continue
+			}
+			if ip.To4() == nil {
+				continue
+			}
+			if ipNet.String() == ipnet.String() {
+				return &iface, nil
+			}
+		}
+	}
+	return nil, errors.New("cannot find interface by cidr")
+}
+
+func GetInterfaceByDstIP(dstIP string) (*net.Interface, error) {
+	conn, err := net.Dial("udp", dstIP+":80")
+	if err != nil {
+		return nil, err
+	}
+
+	defer conn.Close()
+
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	localIP := localAddr.IP.String()
+
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, iface := range ifaces {
+		addrs, _ := iface.Addrs()
+		for _, addr := range addrs {
+			ip := strings.Split(addr.String(), "/")[0]
+			if ip == localIP {
+				return &iface, nil
+			}
+		}
+	}
+	return nil, errors.New("cannot find interface by dstIP")
 }

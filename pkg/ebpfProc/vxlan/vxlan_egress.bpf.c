@@ -16,19 +16,20 @@
 static __u32 choose_iface_index(struct dipVxlanValue *valueu);
 
 // 用于选择远端点，key为远端node对应的子网ip，value为该子网ip可以选择的网卡信息
-struct bpf_elf_map __section("maps") dipVxlan = {
-    .type = BPF_MAP_TYPE_HASH,
-    .size_key = sizeof(struct ipDstKey),
-    .size_value = sizeof(struct dipVxlanValue),
-    .pinning = PIN_GLOBAL_NS,
-    .max_elem = 4096,
-};
+// struct bpf_elf_map __section("maps") dipVxlan = {
+//     .type = BPF_MAP_TYPE_HASH,
+//     .size_key = sizeof(struct ipDstKey),
+//     .size_value = sizeof(struct dipVxlanValue),
+//     .pinning = PIN_GLOBAL_NS,
+//     .max_elem = 4096,
+// };
+
+
 
 
 SEC("classifier")
 int vxlan_egress(struct __sk_buff *skb)
 {
-    trace_printk("vxlan egress: skb->protocol: %d\n", skb->protocol);
     void *data = (void *)(long)skb->data;
     void *data_end = (void *)(long)skb->data_end;
 

@@ -35,8 +35,8 @@ func AddClsactQdiscIntoDev(ifaceName string) error {
 	return nil
 }
 
-func AttachIngressBPFToIface(ifaceName string, bpfFilePath string) error {
-	cmd := "tc filter add dev " + ifaceName + " ingress bpf direct-action obj " + bpfFilePath
+func AttachIngressBPFToIface(ifaceName string, bpfFilePath string, secName string) error {
+	cmd := "tc filter add dev " + ifaceName + " ingress bpf direct-action obj " + bpfFilePath + " sec " + secName
 	res, err := execCmd(cmd)
 	if err != nil {
 		logrus.Errorf("mount bpf file %s to iface %s failed, output = %v, err = %v", bpfFilePath, ifaceName, res, err)
@@ -45,8 +45,8 @@ func AttachIngressBPFToIface(ifaceName string, bpfFilePath string) error {
 	return nil
 }
 
-func AttachEgressBPFToIface(ifaceName string, bpfFilePath string) error {
-	cmd := "tc filter add dev " + ifaceName + " egress bpf direct-action obj " + bpfFilePath
+func AttachEgressBPFToIface(ifaceName string, bpfFilePath string, secName string) error {
+	cmd := "tc filter add dev " + ifaceName + " egress bpf direct-action obj " + bpfFilePath + " sec " + secName
 	res, err := execCmd(cmd)
 	if err != nil {
 		logrus.Errorf("mount bpf file %s to iface %s failed, output = %v, err = %v", bpfFilePath, ifaceName, res, err)

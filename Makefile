@@ -1,5 +1,5 @@
 # 定义需要处理的BPF目录列表
-BPF_DIRS := redirect tc xdp
+BPF_DIRS :=  tc xdp
 
 build-bpf:
 	@echo "Building BPF programs in 'go generate'..."
